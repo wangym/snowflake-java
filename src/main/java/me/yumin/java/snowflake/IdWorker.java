@@ -12,24 +12,26 @@ public class IdWorker {
 	/**
 	 * 
 	 */
-	private long epoch = 1288834974657L;
+	private final long twepoch = 1288834974657L;
 
 	private final long workerIdBits = 5L;
 	private final long datacenterIdBits = 5L;
-	private final long sequenceBits = 12L;
 	private final long maxWorkerId = -1L ^ (-1L << workerIdBits);
 	private final long maxDatacenterId = -1L ^ (-1L << datacenterIdBits);
+	private final long sequenceBits = 12L;
+
 	private final long workerIdShift = sequenceBits;
 	private final long datacenterIdShift = sequenceBits + workerIdBits;
 	private final long timestampLeftShift = sequenceBits + workerIdBits + datacenterIdBits;
 	private final long sequenceMask = -1L ^ (-1L << sequenceBits);
+
+	private long lastTimestamp = -1L;
 
 	/**
 	 * 
 	 */
 	private long workerId = 0;
 	private long datacenterId = 0;
-	private long lastTimestamp = -1L;
 	private long sequence = 0L;
 
 	/**
@@ -37,7 +39,7 @@ public class IdWorker {
 	 * @param workerId
 	 * @param datacenterId
 	 */
-	private IdWorker(long workerId, long datacenterId) {
+	public IdWorker(long workerId, long datacenterId) {
 
 		if (workerId > maxWorkerId || workerId < 0) {
 			throw new IllegalArgumentException(String.format("workerId can't be greater than %d or less than 0.", maxWorkerId));
@@ -92,7 +94,7 @@ public class IdWorker {
 	 * 
 	 * @return
 	 */
-	private synchronized long nextId() {
+	protected synchronized long nextId() {
 
 		long id = 0L;
 
@@ -109,7 +111,7 @@ public class IdWorker {
 			sequence = 0;
 		}
 		lastTimestamp = timestamp;
-		id = ((timestamp - epoch) << timestampLeftShift) | 
+		id = ((timestamp - twepoch) << timestampLeftShift) | 
 				(datacenterId << datacenterIdShift) | 
 				(workerId << workerIdShift) | 
 				sequence;
@@ -122,7 +124,7 @@ public class IdWorker {
 	 * @param lastTimestamp
 	 * @return
 	 */
-	private long tilNextMillis(long lastTimestamp) {
+	protected long tilNextMillis(long lastTimestamp) {
 
 		long timestamp = timeGen();
 
@@ -137,7 +139,7 @@ public class IdWorker {
 	 * 
 	 * @return
 	 */
-	private long timeGen() {
+	protected long timeGen() {
 
 		return System.currentTimeMillis();
 	}
