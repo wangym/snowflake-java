@@ -1,8 +1,6 @@
 /** Copyright 2010-2012 Twitter, Inc.*/
 package me.yumin.java.snowflake;
 
-import java.util.concurrent.locks.ReentrantLock;
-
 /**
  * An object that generates IDs. This is broken into a separate class in case we
  * ever want to support multiple worker threads per process
@@ -14,7 +12,8 @@ public class IdWorker {
 	/**
 	 * 
 	 */
-	private final ReentrantLock LOCK = new ReentrantLock();
+	private long epoch = 1288834974657L;
+
 	private final long workerIdBits = 5L;
 	private final long datacenterIdBits = 5L;
 	private final long sequenceBits = 12L;
@@ -22,16 +21,12 @@ public class IdWorker {
 	private final long maxDatacenterId = -1L ^ (-1L << datacenterIdBits);
 	private final long workerIdShift = sequenceBits;
 	private final long datacenterIdShift = sequenceBits + workerIdBits;
-	private final long timestampLeftShift = sequenceBits + workerIdBits
-			+ datacenterIdBits;
+	private final long timestampLeftShift = sequenceBits + workerIdBits + datacenterIdBits;
 	private final long sequenceMask = -1L ^ (-1L << sequenceBits);
-	private long epoch = 1288834974657L;
 
 	/**
 	 * 
 	 */
-	private static IdWorker instance = null;
-	private static int isInitialized = 0;
 	private long workerId = 0;
 	private long datacenterId = 0;
 	private long lastTimestamp = -1L;
@@ -44,15 +39,11 @@ public class IdWorker {
 	 */
 	private IdWorker(long workerId, long datacenterId) {
 
-		if (workerId > this.maxWorkerId || workerId < 0) {
-			throw new IllegalArgumentException(String.format(
-					"workerId can't be greater than %d or less than 0.",
-					this.maxWorkerId));
+		if (workerId > maxWorkerId || workerId < 0) {
+			throw new IllegalArgumentException(String.format("workerId can't be greater than %d or less than 0.", maxWorkerId));
 		}
-		if (datacenterId > this.maxDatacenterId || datacenterId < 0) {
-			throw new IllegalArgumentException(String.format(
-					"datacenterId can't be greater than %d or less than 0.",
-					this.maxDatacenterId));
+		if (datacenterId > maxDatacenterId || datacenterId < 0) {
+			throw new IllegalArgumentException(String.format("datacenterId can't be greater than %d or less than 0.", maxDatacenterId));
 		}
 
 		this.workerId = workerId;
@@ -61,71 +52,11 @@ public class IdWorker {
 
 	/**
 	 * 
-	 * @param workerId
-	 * @param datacenterId
 	 * @return
 	 */
-	public static IdWorker getInstance(long workerId, long datacenterId) {
+	public long getId() {
 
-		/*
-		 * Double-Checked Locking
-		 * 
-		 * @see
-		 * http://www.cs.umd.edu/~pugh/java/memoryModel/DoubleCheckedLocking
-		 * .html
-		 */
-		if (0 == isInitialized) {
-			synchronized (IdWorker.class) {
-				if (0 == isInitialized) {
-					instance = new IdWorker(workerId, datacenterId);
-					isInitialized = 1;
-				}
-			}
-		}
-
-		return instance;
-	}
-
-	/**
-	 * 
-	 * @return
-	 */
-	public long generateId() {
-
-		long id = 0L;
-
-		LOCK.lock();
-
-		try {
-
-			long timestamp = this.timeGen();
-			if (timestamp == this.lastTimestamp) {
-				this.sequence = (1 + this.sequence) & this.sequenceMask;
-				if (0 == sequence) {
-					timestamp = this.tilNextMillis(this.lastTimestamp);
-				}
-			} else {
-				this.sequence = 0;
-			}
-			if (timestamp < this.lastTimestamp) {
-				throw new RuntimeException(
-						String.format(
-								"clock moved backwards. refusing to generate id for %d milliseconds.",
-								this.lastTimestamp - timestamp));
-			}
-			lastTimestamp = timestamp;
-			id = ((timestamp - this.epoch) << this.timestampLeftShift)
-					| (this.datacenterId << this.datacenterIdShift)
-					| (this.workerId << this.workerIdShift) | this.sequence;
-
-		} catch (Exception e) {
-
-			e.printStackTrace();
-
-		} finally {
-
-			LOCK.unlock();
-		}
+		long id = nextId();
 
 		return id;
 	}
@@ -136,7 +67,7 @@ public class IdWorker {
 	 */
 	public long getWorkerId() {
 
-		return this.workerId;
+		return workerId;
 	}
 
 	/**
@@ -145,7 +76,7 @@ public class IdWorker {
 	 */
 	public long getDatacenterId() {
 
-		return this.datacenterId;
+		return datacenterId;
 	}
 
 	/**
@@ -159,14 +90,44 @@ public class IdWorker {
 
 	/**
 	 * 
+	 * @return
+	 */
+	private synchronized long nextId() {
+
+		long id = 0L;
+
+		long timestamp = timeGen();
+		if (timestamp < lastTimestamp) {
+			throw new RuntimeException(String.format("clock moved backwards. refusing to generate id for %d milliseconds.", lastTimestamp - timestamp));
+		}
+		if (timestamp == lastTimestamp) {
+			sequence = (1 + sequence) & sequenceMask;
+			if (0 == sequence) {
+				timestamp = tilNextMillis(lastTimestamp);
+			}
+		} else {
+			sequence = 0;
+		}
+		lastTimestamp = timestamp;
+		id = ((timestamp - epoch) << timestampLeftShift) | 
+				(datacenterId << datacenterIdShift) | 
+				(workerId << workerIdShift) | 
+				sequence;
+
+		return id;
+	}
+
+	/**
+	 * 
 	 * @param lastTimestamp
 	 * @return
 	 */
 	private long tilNextMillis(long lastTimestamp) {
 
-		long timestamp = this.timeGen();
+		long timestamp = timeGen();
+
 		while (timestamp <= lastTimestamp) {
-			timestamp = this.timeGen();
+			timestamp = timeGen();
 		}
 
 		return timestamp;
